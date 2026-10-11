@@ -13,7 +13,7 @@ Both commands launch the real upstream CLI. Jev only chooses the model for a fre
 
 ## Quick start
 
-Requires Node.js 20.12+ and at least one supported CLI:
+Requires Node.js 22+ and at least one supported CLI:
 [Claude Code](https://code.claude.com/docs/en/setup) or
 [OpenAI Codex](https://developers.openai.com/codex/cli).
 
@@ -261,7 +261,7 @@ injection, and decision display.
 - Claude Code and Codex request formats are not public contracts. Use `JEV_DUMP` to diagnose
   upstream changes.
 - Developed on Windows against Claude Code v2.1.101 and OpenAI Codex v0.154.0; this fork is
-  developed on macOS. CI runs the unit tests on Ubuntu, macOS and Windows with Node.js 20.12, 22 and 24.
+  developed on macOS. CI runs the unit tests on Ubuntu, macOS and Windows with Node.js 22 and 24 (the supported LTS lines).
 
 ## Contributing
 
