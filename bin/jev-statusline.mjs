@@ -2,6 +2,7 @@
 // Status line for Claude Code. Claude Code pipes session JSON on stdin and renders whatever
 // this prints. See https://code.claude.com/docs/en/statusline
 import { readStatus } from "../src/status.mjs";
+import { quotaLabel } from "../src/quota.mjs";
 
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
@@ -40,4 +41,8 @@ if (status?.manual) {
   routed = `${color}${status.model ?? status.tier}${RESET}${p}${why}`;
 }
 
-process.stdout.write(`${routed} ${DIM}·${RESET} ${dir} ${DIM}· ${pct}% context${RESET}\n`);
+// Subscription usage as of the last routed turn, shown once it passes half a window.
+const usage = quotaLabel(status?.quota);
+const usagePart = usage ? ` ${DIM}·${RESET} ${usage}` : "";
+
+process.stdout.write(`${routed}${usagePart} ${DIM}·${RESET} ${dir} ${DIM}· ${pct}% context${RESET}\n`);

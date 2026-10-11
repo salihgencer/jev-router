@@ -202,6 +202,11 @@ One Jev call per fresh user turn selects a shared abstract tier:
 - no turn goes to a tier whose context window the conversation does not fit, even one the
   user named;
 - unavailable tiers step upward rather than silently choosing a weaker model;
+- subscription usage read from response headers (`anthropic-ratelimit-unified-*-utilization`,
+  `x-codex-*-used-percent`) caps Jev's pick: above 80% of a window the strongest tier is the
+  balanced one, above 95% only the fast tier is used, and a tier whose own window (such as a
+  weekly Opus limit) is above 90% steps down. An explicit `use opus` is never capped. The
+  status line shows the fullest window once it passes 50%;
 - the long tier is disabled unless `JEV_ALLOW_FABLE=1`.
 
 Tool-loop continuations keep the tier chosen at the start of the turn. Main conversations and

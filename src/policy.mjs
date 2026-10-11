@@ -1,4 +1,5 @@
 import { TIER_NAMES, THRESHOLDS, TIER_ALIASES, PRICES, rankOf } from "./config.mjs";
+import { QUOTA, quotaCeiling, exhaustedTiers } from "./quota.mjs";
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const ALIAS_TO_TIER = new Map(
@@ -114,9 +115,10 @@ function fitWindow(tier, available, windows, contextTokens) {
  * @param {number} input.contextTokens approximate size of the conversation so far
  * @param {boolean} [input.cacheWarm]  whether the current tier's prompt cache is still alive
  * @param {Object<string, number>} [input.windows] context window per tier, when known
+ * @param {?object} [input.quota]      fresh subscription usage snapshot (see quota.mjs)
  * @returns {{tier: string, reason: string, changed: boolean}}
  */
-export function decide({ prompt, jev, current, available, contextTokens = 0, cacheWarm = true, windows }) {
+export function decide({ prompt, jev, current, available, contextTokens = 0, cacheWarm = true, windows, quota }) {
   const settle = (tier, reason) => {
     let final = clampToAvailable(tier, available) ?? current;
     let why = final === tier ? reason : `${reason}+unavailable`;
@@ -135,16 +137,40 @@ export function decide({ prompt, jev, current, available, contextTokens = 0, cac
   if (!jev || !TIER_NAMES.includes(jev.choice)) return settle(current, "jev-unavailable");
 
   let target = jev.choice;
+  let reason = "jev";
 
   if (jev.confidence < THRESHOLDS.minConfidence) {
     if (rankOf(target) < rankOf(current)) return settle(current, "low-confidence-no-downgrade");
     const ceiling = Math.max(rankOf(current), rankOf(THRESHOLDS.uncertainCeiling));
-    if (rankOf(target) > ceiling) return settle(TIER_NAMES[ceiling], "low-confidence-capped");
+    if (rankOf(target) > ceiling) {
+      target = TIER_NAMES[ceiling];
+      reason = "low-confidence-capped";
+    }
   }
 
-  if (rankOf(target) < rankOf(current) && !switchPays({ from: current, to: target, contextTokens, cacheWarm })) {
+  // Subscription usage: a tier whose own window is nearly spent steps down, and rising
+  // overall usage lowers the strongest tier Jev may pick. The user's explicit choice above
+  // is never capped; they may knowingly spend the rest of a window.
+  const exhausted = exhaustedTiers(quota);
+  if (exhausted.includes(target)) {
+    const lower = TIER_NAMES.slice(0, rankOf(target)).filter((t) => available.includes(t) && !exhausted.includes(t));
+    if (lower.length) {
+      target = lower[lower.length - 1];
+      reason = "quota-tier-exhausted";
+    }
+  }
+  const quotaCap = quotaCeiling(quota);
+  if (quotaCap && rankOf(target) > rankOf(quotaCap)) {
+    target = quotaCap;
+    reason = "quota-capped";
+  }
+  // Near the hard limit, staying on an expensive tier is what runs the window out, so the
+  // cache-rebuild guard yields; below that, a forced downgrade must still pay for itself.
+  const emergency = quota?.overall >= QUOTA.fastAbove;
+
+  if (rankOf(target) < rankOf(current) && !emergency && !switchPays({ from: current, to: target, contextTokens, cacheWarm })) {
     return settle(current, "downgrade-not-worth-cache-rebuild");
   }
 
-  return settle(target, "jev");
+  return settle(target, reason);
 }

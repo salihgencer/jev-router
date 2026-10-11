@@ -15,6 +15,7 @@ import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
 import { log, dumpBody } from "./log.mjs";
 import { scrubPrompt } from "./scrub.mjs";
+import { parseQuota, freshQuota } from "./quota.mjs";
 import { writeDecision, writeStatus } from "./status.mjs";
 
 const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
@@ -297,6 +298,8 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
   // Tier routed for each conversation's turn in flight, reused by its follow-up requests and
   // by the cache-rebuild guard, which needs to know what the prompt cache was built on.
   const convos = new ConversationStates();
+  // Latest subscription usage reported by the API; account-wide, so shared by all conversations.
+  let quota = null;
   const catalog = new Map();
   const stateFor = (body) =>
     convos.get(conversationKey(body), { family: familyKey(body), inherit: isCompaction(body) });
@@ -359,6 +362,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
                 contextTokens,
                 cacheWarm: cacheWarmFor(state, cacheTtlFor(body)),
                 windows: windowsFrom([...catalog.values()]),
+                quota: freshQuota(quota),
               });
               const model =
                 shouldUseExactModel(reason, chosen?.tier, tier)
@@ -373,6 +377,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
                 model,
                 confidence: jev?.confidence ?? null,
                 jevModel: jev?.jevModel ?? null,
+                quota: freshQuota(quota),
                 metrics: jev?.metrics ?? null,
                 reason,
                 jev: jev ? { request: jev.request, response: jev.response } : null,
@@ -445,6 +450,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
             return;
           }
           res.writeHead(up.statusCode, up.headers);
+          quota = parseQuota(up.headers) ?? quota;
           // Record the prompt size the API measured, for the next turn's switch pricing.
           // Only the head of the response is inspected, and the stream is never delayed.
           if (routedState && up.statusCode >= 200 && up.statusCode < 300 && !up.headers["content-encoding"]) {

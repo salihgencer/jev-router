@@ -6,6 +6,7 @@ import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
 import { log, dumpBody } from "./log.mjs";
 import { scrubPrompt } from "./scrub.mjs";
+import { parseQuota, freshQuota } from "./quota.mjs";
 import { writeDecision, writeStatus } from "./status.mjs";
 
 const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
@@ -188,6 +189,8 @@ export async function startCodexProxy({
 } = {}) {
   const states = new Map();
   const models = new Map();
+  // Latest ChatGPT plan usage reported by the backend; account-wide.
+  let quota = null;
 
   const server = http.createServer((req, res) => {
     const chunks = [];
@@ -223,6 +226,7 @@ export async function startCodexProxy({
                 available,
                 contextTokens,
                 windows: codexWindows(models),
+                quota: freshQuota(quota),
               });
               tier = decision.tier;
               model =
@@ -238,6 +242,7 @@ export async function startCodexProxy({
                 model,
                 confidence: jev?.confidence ?? null,
                 jevModel: jev?.jevModel ?? null,
+                quota: freshQuota(quota),
                 metrics: jev?.metrics ?? null,
                 reason: decision.reason,
                 jev: jev ? { request: jev.request, response: jev.response } : null,
@@ -273,6 +278,7 @@ export async function startCodexProxy({
         },
         (response) => {
           const responseHeaders = { ...response.headers };
+          quota = parseQuota(response.headers) ?? quota;
           const isModels = req.method === "GET" && /\/models(?:\?|$)/.test(req.url ?? "");
           if (isModels) {
             const body = [];
