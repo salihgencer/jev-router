@@ -36,6 +36,57 @@ test("detectOverride only fires on a real instruction", () => {
   assert.equal(detectOverride("the opus of his career"), null);
 });
 
+test("detectOverride ignores tier words inside longer phrases (#3)", () => {
+  assert.equal(detectOverride("use strong typing in the parser"), null);
+  assert.equal(detectOverride("use fast-glob instead of glob"), null);
+  assert.equal(detectOverride("with long names the table overflows"), null);
+  assert.equal(detectOverride("on long lines the formatter wraps"), null);
+  assert.equal(detectOverride("refactor this and use sol-based coordinates"), null);
+});
+
+test("detectOverride accepts a clause-leading instruction with a connective tail", () => {
+  assert.equal(detectOverride("use haiku to fix this typo"), "haiku");
+  assert.equal(detectOverride("please use opus for this"), "opus");
+  assert.equal(detectOverride("Fix the auth bug. Use opus."), "opus");
+  assert.equal(detectOverride("look at the logs, then switch to sonnet"), "sonnet");
+  assert.equal(detectOverride("go with the strong model"), "opus");
+});
+
+test("detectOverride ignores negations and conditionals", () => {
+  assert.equal(detectOverride("don't use haiku"), null);
+  assert.equal(detectOverride("do not use opus for this"), null);
+  assert.equal(detectOverride("never use luna here"), null);
+  assert.equal(detectOverride("if it runs long, switch to opus"), null);
+  assert.equal(detectOverride("when tests fail, use opus"), null);
+});
+
+test("detectOverride ignores quoted, fenced and pasted text", () => {
+  assert.equal(detectOverride('the docs say "use opus" for hard tasks'), null);
+  assert.equal(detectOverride("run `use haiku` from the CLI"), null);
+  assert.equal(detectOverride("fix this:\n```\nuse opus\n```"), null);
+  assert.equal(detectOverride("> use opus\nwhat does that line mean?"), null);
+});
+
+test("detectOverride understands Turkish instructions", () => {
+  assert.equal(detectOverride("opus kullan"), "opus");
+  assert.equal(detectOverride("lütfen haiku ile düzelt"), "haiku");
+  assert.equal(detectOverride("bunu sonnet ile yap"), "sonnet");
+  assert.equal(detectOverride("opus'a geç"), "opus");
+  assert.equal(detectOverride("sonnet modeline geç"), "sonnet");
+  assert.equal(detectOverride("opus kullanma"), null);
+  assert.equal(detectOverride("sol ile sağı karşılaştır"), null);
+  assert.equal(detectOverride("opus'a bak, ne diyor"), null);
+});
+
+test("the last explicit instruction wins", () => {
+  assert.equal(detectOverride("use opus. actually, use haiku"), "haiku");
+});
+
+test("an explicit name never re-enables a tier the config excluded", () => {
+  const out = decide({ ...base, prompt: "use fable", available: ["haiku", "sonnet", "opus"], jev: null });
+  assert.notEqual(out.tier, "fable");
+});
+
 test("keeps the current model when Jev is unreachable", () => {
   const out = decide({ ...base, jev: null });
   assert.equal(out.tier, "sonnet");

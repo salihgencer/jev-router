@@ -92,19 +92,17 @@ const COMPLEXITY_SCALE = [
 
 export const COMPLEXITY_MAX_SCORE = COMPLEXITY_SCALE.length - 1;
 
-/** Phrases that mean "the human already decided", checked against the raw prompt. */
-export const OVERRIDE_PATTERNS = TIERS.map((t) => ({
-  tier: t.name,
-  re: new RegExp(
-    `\\b(?:use|switch to|with|on)\\s+(?:${{
-      haiku: "haiku|fast|luna",
-      sonnet: "sonnet|balanced|terra",
-      opus: "opus|strong|sol",
-      fable: "fable|long|astra",
-    }[t.name]})\\b`,
-    "i",
-  ),
-}));
+/**
+ * Names a user may type to pick a tier explicitly ("use opus", "switch to luna", "opus kullan").
+ * Parsed by `detectOverride` in policy.mjs, which only accepts them as a clause-leading
+ * instruction, so "use strong typing" or "use fast-glob" do not count.
+ */
+export const TIER_ALIASES = {
+  haiku: ["haiku", "fast", "luna"],
+  sonnet: ["sonnet", "balanced", "terra"],
+  opus: ["opus", "strong", "sol"],
+  fable: ["fable", "long", "astra"],
+};
 
 export const QUESTIONS = {
   task_complexity: score(

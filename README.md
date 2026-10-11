@@ -190,7 +190,10 @@ One Jev call per fresh user turn selects a shared abstract tier:
 
 `src/policy.mjs` then applies these rules:
 
-- explicit requests such as `use opus`, `use luna`, or `use strong` win;
+- explicit requests such as `use opus`, `use luna`, `use strong` or `opus kullan` win, but only
+  as a clause-leading instruction: quoted or pasted text, negations (`don't use haiku`),
+  conditionals (`if it runs long, switch to opus`) and phrases such as `use strong typing` or
+  `use fast-glob` are ignored;
 - failure, timeout, or an unrecognised Jev answer keeps the current model;
 - low confidence never downgrades and caps upgrades at the balanced tier;
 - large conversations refuse downgrades that would waste more prompt-cache work than they save;
