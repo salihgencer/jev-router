@@ -10,6 +10,7 @@ import {
   tierSpec,
   isAuto,
   shouldUseExactModel,
+  THRESHOLDS,
 } from "./config.mjs";
 import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
@@ -208,6 +209,29 @@ export const contextTokensFor = (body, state) =>
 /** How much of a response the proxy buffers while looking for its usage. */
 const USAGE_SNIFF_BYTES = 64 * 1024;
 
+/** Prompt-cache lifetime the request asks for: one hour if any breakpoint says so. */
+export const cacheTtlFor = (body) =>
+  /"ttl"\s*:\s*"1h"/.test(JSON.stringify(body ?? {})) ? THRESHOLDS.cacheTtlLongMs : THRESHOLDS.cacheTtlMs;
+
+/**
+ * Whether this conversation's prompt cache is still alive. A conversation with no answered
+ * request yet has nothing cached, so it counts as cold and switching is free.
+ */
+export const cacheWarmFor = (state, ttlMs, now = Date.now()) =>
+  Boolean(state?.lastResponseAt) && now - state.lastResponseAt < ttlMs;
+
+/** Largest context window the account's catalog reports for each tier. */
+export function windowsFrom(catalog = []) {
+  const windows = {};
+  for (const model of catalog) {
+    const tier = tierOf(model?.id);
+    if (tier && typeof model.max_input_tokens === "number") {
+      windows[tier] = Math.max(windows[tier] ?? 0, model.max_input_tokens);
+    }
+  }
+  return windows;
+}
+
 
 export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = askJev } = {}) {
   // Tier routed for each conversation's turn in flight, reused by its follow-up requests and
@@ -278,6 +302,8 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
                 current,
                 available,
                 contextTokens,
+                cacheWarm: cacheWarmFor(state, cacheTtlFor(body)),
+                windows: windowsFrom([...catalog.values()]),
               });
               const model =
                 shouldUseExactModel(reason, chosen?.tier, tier)

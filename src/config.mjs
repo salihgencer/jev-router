@@ -51,11 +51,19 @@ export const THRESHOLDS = {
   /** Safest tier to land on when Jev is unsure. */
   uncertainCeiling: "sonnet",
   /**
-   * Switching models invalidates the prompt cache; the next turn re-sends the whole
-   * conversation. Measured at ~23.6k cache-creation tokens switching into Opus, so a
-   * downgrade only pays off while the conversation is still small.
+   * Switching models invalidates the prompt cache; the next request re-sends everything in
+   * front of the new turn as cache writes (measured ~23.6k cache-creation tokens switching
+   * into Opus). A downgrade therefore has to earn back that rewrite, plus the likely rewrite
+   * when the conversation comes back up, within the next few requests. See `switchPays`.
    */
-  downgradeMaxContextTokens: 20000,
+  switchHorizonRequests: 5,
+  /** Typical output per request over that horizon. */
+  switchOutputTokens: 600,
+  /** Chance a downgraded conversation later climbs back and pays a second rewrite. */
+  returnProbability: 0.5,
+  /** Prompt-cache lifetimes; Claude Code marks long-lived breakpoints with `ttl: "1h"`. */
+  cacheTtlMs: 5 * 60 * 1000,
+  cacheTtlLongMs: 60 * 60 * 1000,
   /**
    * Per-attempt Jev HTTP timeout and the hard wall-clock deadline for the whole routing
    * call. Measured: ~300-350ms warm, ~900-1000ms on the first call (TLS handshake), so the
@@ -64,6 +72,21 @@ export const THRESHOLDS = {
   jevTimeoutMs: 1500,
   jevDeadlineMs: 3000,
   jevMaxRetries: 1,
+};
+
+/**
+ * Relative price per token of each tier (input; output is `outputRatio` times that). Only
+ * the ratios matter: they weigh switch decisions, and on a subscription they approximate how
+ * fast each tier consumes the usage limit. Cache writes cost 1.25x input, reads 0.1x.
+ */
+export const PRICES = {
+  haiku: 1,
+  sonnet: 3,
+  opus: 5,
+  fable: 15,
+  outputRatio: 5,
+  cacheWrite: 1.25,
+  cacheRead: 0.1,
 };
 
 export const CONTEXT_WINDOW_TOKENS = 200000;

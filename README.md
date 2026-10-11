@@ -196,7 +196,11 @@ One Jev call per fresh user turn selects a shared abstract tier:
   `use fast-glob` are ignored;
 - failure, timeout, or an unrecognised Jev answer keeps the current model;
 - low confidence never downgrades and caps upgrades at the balanced tier;
-- large conversations refuse downgrades that would waste more prompt-cache work than they save;
+- a downgrade goes ahead only if it earns back the prompt-cache rewrite (plus the likely
+  rewrite on the way back up) within the next few requests; a cache idle past its TTL
+  (5 minutes, or 1 hour when Claude Code asks for it) is cold, so switching is then free;
+- no turn goes to a tier whose context window the conversation does not fit, even one the
+  user named;
 - unavailable tiers step upward rather than silently choosing a weaker model;
 - the long tier is disabled unless `JEV_ALLOW_FABLE=1`.
 

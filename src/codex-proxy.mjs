@@ -105,6 +105,18 @@ export function codexConversationKey(body) {
 export const codexContextTokens = (body) =>
   Math.round(JSON.stringify([body?.instructions ?? "", body?.tools ?? [], body?.input ?? []]).length / 4);
 
+/** Largest context window Codex's catalog reports for each tier. */
+export function codexWindows(models = new Map()) {
+  const windows = {};
+  for (const model of models.values()) {
+    const tier = model?.slug !== CODEX_AUTO_MODEL && codexTierOf(model?.slug);
+    if (tier && typeof model.context_window === "number") {
+      windows[tier] = Math.max(windows[tier] ?? 0, model.context_window);
+    }
+  }
+  return windows;
+}
+
 export function addJevModel(catalog) {
   if (!Array.isArray(catalog?.models) || catalog.models.some((model) => model.slug === CODEX_AUTO_MODEL)) {
     return catalog;
@@ -211,6 +223,7 @@ export async function startCodexProxy({
                 current,
                 available,
                 contextTokens,
+                windows: codexWindows(models),
               });
               tier = decision.tier;
               model =

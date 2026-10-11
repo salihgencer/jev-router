@@ -1,4 +1,4 @@
-import { TIER_NAMES, THRESHOLDS, TIER_ALIASES, rankOf } from "./config.mjs";
+import { TIER_NAMES, THRESHOLDS, TIER_ALIASES, PRICES, rankOf } from "./config.mjs";
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const ALIAS_TO_TIER = new Map(
@@ -73,6 +73,36 @@ function clampToAvailable(tier, available) {
 }
 
 /**
+ * Whether switching from `from` to `to` costs less than staying, over the next few requests.
+ *
+ * Staying on a warm cache pays cache reads; switching pays a full cache write on the new
+ * tier, then reads there, plus the expected rewrite if the conversation later climbs back.
+ * A cold cache (idle past its TTL) has to be rewritten either way, so staying pays the write
+ * too and the cheaper tier wins. Units are relative prices (`PRICES`), not money.
+ */
+export function switchPays({ from, to, contextTokens, cacheWarm = true }) {
+  const n = THRESHOLDS.switchHorizonRequests;
+  const out = THRESHOLDS.switchOutputTokens;
+  const { cacheWrite, cacheRead, outputRatio } = PRICES;
+  const price = (tier) => PRICES[tier] ?? PRICES.opus;
+  const requests = (tier, firstWrite) =>
+    contextTokens * price(tier) * ((firstWrite ? cacheWrite : cacheRead) + (n - 1) * cacheRead) +
+    n * out * price(tier) * outputRatio;
+  const stay = requests(from, !cacheWarm);
+  const comeBack = rankOf(to) < rankOf(from) ? THRESHOLDS.returnProbability * contextTokens * price(from) * cacheWrite : 0;
+  return requests(to, true) + comeBack < stay;
+}
+
+/**
+ * Smallest available tier at or above `tier` whose context window holds the conversation,
+ * or null if none does. Unknown windows are assumed to fit.
+ */
+function fitWindow(tier, available, windows, contextTokens) {
+  const fits = (t) => !windows?.[t] || contextTokens <= windows[t];
+  return TIER_NAMES.slice(rankOf(tier)).find((t) => available.includes(t) && fits(t)) ?? null;
+}
+
+/**
  * Turns a Jev answer into the model we will actually run. Pure and total: any missing,
  * malformed, or unavailable input falls back to the model already in use.
  *
@@ -82,12 +112,20 @@ function clampToAvailable(tier, available) {
  * @param {string} input.current       tier currently active in the session
  * @param {string[]} input.available   tier names the account can run
  * @param {number} input.contextTokens approximate size of the conversation so far
+ * @param {boolean} [input.cacheWarm]  whether the current tier's prompt cache is still alive
+ * @param {Object<string, number>} [input.windows] context window per tier, when known
  * @returns {{tier: string, reason: string, changed: boolean}}
  */
-export function decide({ prompt, jev, current, available, contextTokens = 0 }) {
+export function decide({ prompt, jev, current, available, contextTokens = 0, cacheWarm = true, windows }) {
   const settle = (tier, reason) => {
-    const final = clampToAvailable(tier, available) ?? current;
-    const why = final === tier ? reason : `${reason}+unavailable`;
+    let final = clampToAvailable(tier, available) ?? current;
+    let why = final === tier ? reason : `${reason}+unavailable`;
+    // Never send a turn to a tier it does not fit, even one the user named.
+    const fitted = fitWindow(final, available, windows, contextTokens);
+    if (fitted !== final) {
+      final = fitted ?? current;
+      why = `${why}+window`;
+    }
     return { tier: final, reason: final === current ? `${why}/no-change` : why, changed: final !== current };
   };
 
@@ -104,7 +142,7 @@ export function decide({ prompt, jev, current, available, contextTokens = 0 }) {
     if (rankOf(target) > ceiling) return settle(TIER_NAMES[ceiling], "low-confidence-capped");
   }
 
-  if (rankOf(target) < rankOf(current) && contextTokens > THRESHOLDS.downgradeMaxContextTokens) {
+  if (rankOf(target) < rankOf(current) && !switchPays({ from: current, to: target, contextTokens, cacheWarm })) {
     return settle(current, "downgrade-not-worth-cache-rebuild");
   }
 
