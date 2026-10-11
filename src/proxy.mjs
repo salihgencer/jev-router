@@ -155,6 +155,66 @@ export function conversationKey(body) {
   return createHash("sha1").update(`${session}|${text}`).digest("hex").slice(0, 12);
 }
 
+const blockText = (content) =>
+  typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.filter((b) => b?.type === "text").map((b) => b.text).join("")
+      : "";
+
+/**
+ * Identifies which agent a conversation belongs to: the session plus the system prompt. The
+ * main agent keeps its system prompt across /compact, while each sub-agent type has its own,
+ * so this links a compacted conversation back to the one it replaced.
+ */
+export function familyKey(body) {
+  return createHash("sha1").update(`${sessionOf(body)}|${blockText(body?.system)}`).digest("hex").slice(0, 12);
+}
+
+/**
+ * Whether a conversation opens with Claude Code's compaction summary. /compact replaces the
+ * history, so the first message (and with it the conversation key) changes. The wording is
+ * Claude Code's and is not a public contract; /clear produces no summary and starts afresh.
+ */
+export const isCompaction = (body) =>
+  /session is being continued from a previous conversation/i.test(blockText(body?.messages?.[0]?.content));
+
+/**
+ * Per-conversation routing state, least-recently-used first out. A compacted conversation
+ * inherits the tier and exact model of the conversation it replaced; its prompt size and
+ * cache age start over, because compaction rebuilt the prompt.
+ */
+export class ConversationStates {
+  constructor(limit = 100) {
+    this.limit = limit;
+    this.states = new Map();
+    this.latest = new Map(); // family key -> conversation key last used in that family
+  }
+
+  get(key, { family, inherit = false } = {}) {
+    let state = this.states.get(key);
+    if (state) {
+      this.states.delete(key); // re-insert to mark as most recently used
+    } else {
+      state = { tier: null };
+      const previous = inherit && family ? this.states.get(this.latest.get(family)) : null;
+      if (previous?.tier) Object.assign(state, { tier: previous.tier, model: previous.model, compacted: true });
+      while (this.states.size >= this.limit) this.states.delete(this.states.keys().next().value);
+    }
+    this.states.set(key, state);
+    if (family) {
+      this.latest.delete(family);
+      this.latest.set(family, key);
+      while (this.latest.size > this.limit) this.latest.delete(this.latest.keys().next().value);
+    }
+    return state;
+  }
+
+  get size() {
+    return this.states.size;
+  }
+}
+
 /**
  * Records the tier Claude Code is asking for and reports whether the user has taken manual
  * control. The first tier seen in a conversation is the baseline; any later change means the
@@ -236,16 +296,10 @@ export function windowsFrom(catalog = []) {
 export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = askJev } = {}) {
   // Tier routed for each conversation's turn in flight, reused by its follow-up requests and
   // by the cache-rebuild guard, which needs to know what the prompt cache was built on.
-  const convos = new Map();
+  const convos = new ConversationStates();
   const catalog = new Map();
-  const stateFor = (key) => {
-    let s = convos.get(key);
-    if (!s) {
-      if (convos.size > 50) convos.delete(convos.keys().next().value);
-      convos.set(key, (s = { tier: null }));
-    }
-    return s;
-  };
+  const stateFor = (body) =>
+    convos.get(conversationKey(body), { family: familyKey(body), inherit: isCompaction(body) });
 
   const server = http.createServer((req, res) => {
     // Claude Code probes the base URL before its first request.
@@ -279,7 +333,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
             }
           } else {
             const key = conversationKey(body);
-            const state = stateFor(key);
+            const state = stateFor(body);
             routedState = state;
             // What the prompt cache was built on, which is what a downgrade would discard.
             const current = state.tier ?? "opus";
