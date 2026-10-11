@@ -260,7 +260,12 @@ injection, and decision display.
 
 ## Limitations
 
-- The user's prompt text is sent to TypeSafe for the routing decision. Nothing else is.
+- The user's prompt text is sent to TypeSafe for the routing decision. Nothing else is. Secrets
+  (key and token shapes, PEM blocks, `KEY=` assignments, URL credentials and the values of
+  credential-like environment variables) are redacted first and the prompt is capped at 6000
+  characters; the same redacted form is what decision files store. Redaction lowers the risk
+  of leaking a pasted secret but is not a guarantee. Debug logs and `JEV_DUMP` files are
+  owner-only (mode 600).
 - Jev adds latency only to the first request of a turn; tool-loop continuations add none.
 - Claude Code and Codex request formats are not public contracts. Use `JEV_DUMP` to diagnose
   upstream changes.

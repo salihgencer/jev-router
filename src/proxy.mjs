@@ -1,7 +1,6 @@
 import http from "node:http";
 import https from "node:https";
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
 import {
   TIERS,
   tierOf,
@@ -14,7 +13,8 @@ import {
 } from "./config.mjs";
 import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
-import { log } from "./log.mjs";
+import { log, dumpBody } from "./log.mjs";
+import { scrubPrompt } from "./scrub.mjs";
 import { writeDecision, writeStatus } from "./status.mjs";
 
 const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
@@ -316,9 +316,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
         try {
           const body = JSON.parse(out.toString());
           // Claude Code's request shape is undocumented and moves; JEV_DUMP captures it.
-          if (process.env.JEV_DUMP) {
-            writeFileSync(`${process.env.JEV_DUMP}.${Date.now()}.json`, JSON.stringify(body, null, 2));
-          }
+          dumpBody(body);
           body.tools?.forEach((t) => sanitizeSchema(t.input_schema));
 
           // Anything that is not the sentinel is a model the user chose, and an explicit
@@ -346,8 +344,11 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
               );
               const available = [...new Set(models.map((model) => model.tier))];
               const currentModel = state.model ?? modelForTier(models, current);
+              // Only the scrubbed, capped prompt leaves the machine or is stored; the raw one is
+              // kept for override detection, which runs locally.
+              const shared = scrubPrompt(prompt);
               const contextTokens = contextTokensFor(body, state);
-              const jev = await route({ prompt, current: currentModel, contextTokens, models });
+              const jev = await route({ prompt: shared, current: currentModel, contextTokens, models });
               const chosen = models.find((model) => model.id === jev?.choice);
               const tierAnswer = jev && { ...jev, choice: chosen?.tier };
               const { tier, reason } = decide({
@@ -368,7 +369,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
               state.tier = tier;
               state.model = model;
               fresh = {
-                prompt,
+                prompt: shared,
                 model,
                 confidence: jev?.confidence ?? null,
                 jevModel: jev?.jevModel ?? null,
@@ -378,7 +379,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
               };
               debug(
                 `${key} ${jev ? `${jev.ms}ms p=${jev.confidence.toFixed(2)}` : "no-jev"} ` +
-                  `${current} -> ${tier} (${reason}) ctx~${contextTokens} | ${prompt.slice(0, 60)}`,
+                  `${current} -> ${tier} (${reason}) ctx~${contextTokens} | ${shared.slice(0, 60)}`,
               );
             }
             // The sentinel is not a real model, so every routed request must be rewritten,

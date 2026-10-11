@@ -1,11 +1,11 @@
 import http from "node:http";
 import https from "node:https";
 import { createHash, randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
 import { availableTiers, shouldUseExactModel } from "./config.mjs";
 import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
-import { log } from "./log.mjs";
+import { log, dumpBody } from "./log.mjs";
+import { scrubPrompt } from "./scrub.mjs";
 import { writeDecision, writeStatus } from "./status.mjs";
 
 const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
@@ -198,9 +198,7 @@ export async function startCodexProxy({
       if (req.method === "POST" && /\/responses(?:\?|$)/.test(req.url ?? "")) {
         try {
           const body = JSON.parse(out.toString());
-          if (process.env.JEV_DUMP) {
-            writeFileSync(`${process.env.JEV_DUMP}.${Date.now()}.json`, JSON.stringify(body, null, 2));
-          }
+          dumpBody(body);
           if (body.model === CODEX_AUTO_MODEL) {
             const key = codexConversationKey(body);
             const candidates = codexModels(models).filter((model) =>
@@ -214,8 +212,9 @@ export async function startCodexProxy({
             let tier = current;
             let model = currentModel;
             if (prompt && !explaining) {
+              const shared = scrubPrompt(prompt); // only this form leaves the machine or is stored
               const contextTokens = codexContextTokens(body);
-              const jev = await route({ prompt, current: currentModel, contextTokens, models: candidates });
+              const jev = await route({ prompt: shared, current: currentModel, contextTokens, models: candidates });
               const chosen = candidates.find((candidate) => candidate.id === jev?.choice);
               const decision = decide({
                 prompt,
@@ -234,7 +233,7 @@ export async function startCodexProxy({
                     : modelForTier(candidates, tier);
               states.set(key, { tier, model });
               routing = {
-                prompt,
+                prompt: shared,
                 tier,
                 model,
                 confidence: jev?.confidence ?? null,
@@ -245,7 +244,7 @@ export async function startCodexProxy({
                 at: Date.now(),
               };
               writeDecision(statusId, routing);
-              debug(`${key} ${current} -> ${tier} (${decision.reason}) | ${prompt.slice(0, 60)}`);
+              debug(`${key} ${current} -> ${tier} (${decision.reason}) | ${shared.slice(0, 60)}`);
             }
             applyCodexTier(body, tier, models, model);
           } else {

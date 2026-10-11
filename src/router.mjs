@@ -8,6 +8,7 @@ import {
   jevModel,
 } from "./config.mjs";
 import { log } from "./log.mjs";
+import { scrubPrompt } from "./scrub.mjs";
 
 /**
  * Client settings. The SDK's defaults (10s per attempt, 2 retries, no total budget) are far
@@ -45,7 +46,7 @@ export async function askJev({ prompt, current, contextTokens, models }) {
   const deadline = setTimeout(() => abort.abort(), THRESHOLDS.jevDeadlineMs);
   const request = {
     state: {
-      request: prompt,
+      request: scrubPrompt(prompt), // idempotent backstop for callers that skipped it
       session: { current_model: current, context_tokens: contextTokens },
       environment: { available_models: models.map((model) => model.id) },
     },
