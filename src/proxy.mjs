@@ -166,6 +166,48 @@ export function observeModel(state, current) {
   return state.manual;
 }
 
+/**
+ * Approximate prompt size of a request. Switching models rebuilds the cache for everything
+ * in front of the new turn, which includes Claude Code's system prompt and tool definitions
+ * (often 20k+ tokens on their own), not just the messages.
+ */
+export function estimateContextTokens(body) {
+  const { system, tools, messages } = body ?? {};
+  return Math.round(JSON.stringify([system ?? "", tools ?? [], messages ?? []]).length / 4);
+}
+
+/**
+ * Prompt tokens the API reports for a response: uncached input plus cache reads and writes.
+ * Reads the `message_start` event of a stream, or the `usage` of a plain JSON response.
+ * Returns null when the text holds neither.
+ */
+export function promptTokensFrom(text) {
+  const usageOf = (obj) => obj?.message?.usage ?? obj?.usage;
+  const total = (u) =>
+    u && typeof u.input_tokens === "number"
+      ? u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+      : null;
+  const start = /event:\s*message_start\s*\ndata:\s*(\{.*\})/.exec(text);
+  try {
+    if (start) return total(usageOf(JSON.parse(start[1])));
+    if (/^\s*\{/.test(text)) return total(usageOf(JSON.parse(text)));
+  } catch {
+    // Incomplete or malformed; the caller keeps its estimate.
+  }
+  return null;
+}
+
+/**
+ * Context size used by the policy: the larger of the local estimate and what the API
+ * measured for this conversation's previous request, so a downgrade is never priced on an
+ * undercount.
+ */
+export const contextTokensFor = (body, state) =>
+  Math.max(estimateContextTokens(body), state?.promptTokens ?? 0);
+
+/** How much of a response the proxy buffers while looking for its usage. */
+const USAGE_SNIFF_BYTES = 64 * 1024;
+
 
 export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = askJev } = {}) {
   // Tier routed for each conversation's turn in flight, reused by its follow-up requests and
@@ -189,6 +231,8 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
     req.on("data", (c) => chunks.push(c));
     req.on("end", async () => {
       let out = Buffer.concat(chunks);
+      // Conversation state of a routed request, so its response usage can be recorded.
+      let routedState = null;
 
       if (/^\/v1\/messages/.test(req.url ?? "")) {
         try {
@@ -212,6 +256,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
           } else {
             const key = conversationKey(body);
             const state = stateFor(key);
+            routedState = state;
             // What the prompt cache was built on, which is what a downgrade would discard.
             const current = state.tier ?? "opus";
             const prompt = newTurnPrompt(body);
@@ -223,7 +268,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
               );
               const available = [...new Set(models.map((model) => model.tier))];
               const currentModel = state.model ?? modelForTier(models, current);
-              const contextTokens = Math.round(JSON.stringify(body.messages).length / 4);
+              const contextTokens = contextTokensFor(body, state);
               const jev = await route({ prompt, current: currentModel, contextTokens, models });
               const chosen = models.find((model) => model.id === jev?.choice);
               const tierAnswer = jev && { ...jev, choice: chosen?.tier };
@@ -286,8 +331,9 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
         delete headers["accept-encoding"];
       }
       // Under JEV_DEBUG, ask for an uncompressed stream so the model the API reports can be
-      // read back out of it. Not worth the bandwidth cost in normal operation.
-      if (process.env.JEV_DEBUG) delete headers["accept-encoding"];
+      // read back out of it. Routed requests are also asked uncompressed so their usage can
+      // be read; Messages API streams are small SSE frames, so the bandwidth cost is minor.
+      if (process.env.JEV_DEBUG || routedState) delete headers["accept-encoding"];
       const upstream = transport.request(
         {
           hostname: target.hostname,
@@ -318,6 +364,26 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
             return;
           }
           res.writeHead(up.statusCode, up.headers);
+          // Record the prompt size the API measured, for the next turn's switch pricing.
+          // Only the head of the response is inspected, and the stream is never delayed.
+          if (routedState && up.statusCode >= 200 && up.statusCode < 300 && !up.headers["content-encoding"]) {
+            const state = routedState;
+            let head = "";
+            let done = false;
+            const finish = () => {
+              if (done) return;
+              done = true;
+              const tokens = promptTokensFrom(head);
+              if (tokens != null) state.promptTokens = tokens;
+              state.lastResponseAt = Date.now();
+            };
+            up.on("data", (c) => {
+              if (done) return;
+              head += c.toString("utf8");
+              if (promptTokensFrom(head) != null || head.length > USAGE_SNIFF_BYTES) finish();
+            });
+            up.on("end", finish);
+          }
           // Report the model the API itself says it used, so the routing can be confirmed
           // from the wire rather than trusted from our own decision log. Claude Code's UI
           // always shows the model it asked for, never the one we rewrote to.

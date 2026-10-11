@@ -101,6 +101,10 @@ export function codexConversationKey(body) {
   return createHash("sha1").update(String(stable)).digest("hex").slice(0, 12);
 }
 
+/** Approximate prompt size, including the instructions and tool definitions a switch re-sends. */
+export const codexContextTokens = (body) =>
+  Math.round(JSON.stringify([body?.instructions ?? "", body?.tools ?? [], body?.input ?? []]).length / 4);
+
 export function addJevModel(catalog) {
   if (!Array.isArray(catalog?.models) || catalog.models.some((model) => model.slug === CODEX_AUTO_MODEL)) {
     return catalog;
@@ -198,7 +202,7 @@ export async function startCodexProxy({
             let tier = current;
             let model = currentModel;
             if (prompt && !explaining) {
-              const contextTokens = Math.round(JSON.stringify(body.input).length / 4);
+              const contextTokens = codexContextTokens(body);
               const jev = await route({ prompt, current: currentModel, contextTokens, models: candidates });
               const chosen = candidates.find((candidate) => candidate.id === jev?.choice);
               const decision = decide({
