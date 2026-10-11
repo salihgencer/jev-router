@@ -136,6 +136,22 @@ may also remove them during normal temporary-file cleanup.
 > Choosing a model with `Enter` can save it as Claude Code's default. `jev-claude` restores
 > the previous default on exit so `jev-router` cannot break plain `claude`.
 
+### Sub-agent routing
+
+A sub-agent starts with an empty context, so picking its model costs no prompt-cache rebuild.
+`jev-subagent-hook` is a `PreToolUse` hook on Claude Code's `Agent` tool that asks Jev for each
+sub-agent's brief and sets the Agent call's `model` (`haiku`, `sonnet` or `opus`). It works in a
+plain `claude` session too, where the main model stays whatever you chose.
+
+```sh
+jev-subagent-hook install     # adds the hook to ~/.claude/settings.json, backing it up first
+jev-subagent-hook uninstall
+```
+
+It leaves a call alone when Claude already passed a model, when the agent's front matter pins
+one, when the agent cannot be found, inside `jev-claude` (whose proxy already routes inheriting
+sub-agents), and on any Jev failure or low-confidence answer. Other hooks are kept as they are.
+
 ## OpenAI Codex interface
 
 ![Jev Router in the OpenAI Codex model picker](docs/codex-model-picker.png)
