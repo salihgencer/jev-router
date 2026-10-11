@@ -256,7 +256,8 @@ injection, and decision display.
 - Jev adds latency only to the first request of a turn; tool-loop continuations add none.
 - Claude Code and Codex request formats are not public contracts. Use `JEV_DUMP` to diagnose
   upstream changes.
-- Developed and tested on Windows against Claude Code v2.1.101 and OpenAI Codex v0.154.0.
+- Developed on Windows against Claude Code v2.1.101 and OpenAI Codex v0.154.0; this fork is
+  developed on macOS. CI runs the unit tests on Ubuntu, macOS and Windows with Node.js 20.12, 22 and 24.
 
 ## Contributing
 
