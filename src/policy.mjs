@@ -57,6 +57,37 @@ export function detectOverride(prompt) {
   return found;
 }
 
+const GO_AHEADS = new Set([
+  // English
+  "ok", "okay", "k", "yes", "y", "yep", "yeah", "sure", "continue", "go", "go ahead", "proceed",
+  "do it", "lgtm", "thanks", "thank you", "ty", "next", "carry on", "keep going", "sounds good",
+  "perfect", "great", "good", "nice", "approved", "ship it",
+  // Turkish
+  "tamam", "evet", "devam", "devam et", "olur", "peki", "aynen", "sağol", "sağ ol", "teşekkürler",
+  "teşekkür ederim", "eyvallah", "yap", "hadi", "başla", "uygula", "onaylıyorum", "onay", "harika",
+  "süper", "güzel", "tamamdır", "olur yap", "evet yap", "evet devam",
+]);
+
+/** Prompts shorter than this carry too little to judge and keep the current tier. */
+export const MIN_JUDGED_CHARS = 12;
+
+/**
+ * Why a prompt is not worth a Jev call, or null if it is.
+ *
+ * A bare go-ahead, a slash command or a very short reply carries no task of its own; Jev
+ * tends to rate such replies as trivial, which would drop a running task to the fast tier.
+ * These keep the current tier instead. An explicit tier instruction is handled before this.
+ */
+export function trivialPrompt(prompt) {
+  const text = (prompt ?? "").trim();
+  if (!text) return "empty";
+  if (text.startsWith("/") || text.includes("<command-name>")) return "slash-command";
+  const words = text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  if (!words || GO_AHEADS.has(words)) return "go-ahead";
+  if (text.length < MIN_JUDGED_CHARS) return "short";
+  return null;
+}
+
 /**
  * Nearest tier the account can actually run. Prefers stepping up rather than down so we
  * never silently hand a hard task to a weaker model, but never steps up into `fable`
@@ -116,9 +147,10 @@ function fitWindow(tier, available, windows, contextTokens) {
  * @param {boolean} [input.cacheWarm]  whether the current tier's prompt cache is still alive
  * @param {Object<string, number>} [input.windows] context window per tier, when known
  * @param {?object} [input.quota]      fresh subscription usage snapshot (see quota.mjs)
+ * @param {?string} [input.skip]      why Jev was not asked (see `trivialPrompt`), if it was not
  * @returns {{tier: string, reason: string, changed: boolean}}
  */
-export function decide({ prompt, jev, current, available, contextTokens = 0, cacheWarm = true, windows, quota }) {
+export function decide({ prompt, jev, current, available, contextTokens = 0, cacheWarm = true, windows, quota, skip }) {
   const settle = (tier, reason) => {
     let final = clampToAvailable(tier, available) ?? current;
     let why = final === tier ? reason : `${reason}+unavailable`;
@@ -133,6 +165,8 @@ export function decide({ prompt, jev, current, available, contextTokens = 0, cac
 
   const override = detectOverride(prompt);
   if (override) return settle(override, "override");
+
+  if (skip) return settle(current, `skip-${skip}`);
 
   if (!jev || !TIER_NAMES.includes(jev.choice)) return settle(current, "jev-unavailable");
 

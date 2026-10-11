@@ -3,7 +3,7 @@ import https from "node:https";
 import { createHash, randomUUID } from "node:crypto";
 import { availableTiers, shouldUseExactModel } from "./config.mjs";
 import { askJev } from "./router.mjs";
-import { decide } from "./policy.mjs";
+import { decide, trivialPrompt } from "./policy.mjs";
 import { log, dumpBody } from "./log.mjs";
 import { scrubPrompt } from "./scrub.mjs";
 import { parseQuota, freshQuota } from "./quota.mjs";
@@ -217,7 +217,8 @@ export async function startCodexProxy({
             if (prompt && !explaining) {
               const shared = scrubPrompt(prompt); // only this form leaves the machine or is stored
               const contextTokens = codexContextTokens(body);
-              const jev = await route({ prompt: shared, current: currentModel, contextTokens, models: candidates });
+              const skip = trivialPrompt(prompt); // go-aheads and slash commands keep the tier
+              const jev = skip ? null : await route({ prompt: shared, current: currentModel, contextTokens, models: candidates });
               const chosen = candidates.find((candidate) => candidate.id === jev?.choice);
               const decision = decide({
                 prompt,
@@ -227,6 +228,7 @@ export async function startCodexProxy({
                 contextTokens,
                 windows: codexWindows(models),
                 quota: freshQuota(quota),
+                skip,
               });
               tier = decision.tier;
               model =

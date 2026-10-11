@@ -85,7 +85,7 @@ test("the proxy feeds the API's measured prompt size into the next turn's decisi
 
   const first = [{ role: "user", content: `first turn ${process.pid}` }];
   await send(first);
-  await send([...first, { role: "assistant", content: "done" }, { role: "user", content: "second turn" }]);
+  await send([...first, { role: "assistant", content: "done" }, { role: "user", content: "now do the second turn" }]);
 
   assert.equal(contexts.length, 2);
   assert.ok(contexts[0] < 1000, "the first turn has only the estimate");

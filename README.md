@@ -194,6 +194,9 @@ One Jev call per fresh user turn selects a shared abstract tier:
   as a clause-leading instruction: quoted or pasted text, negations (`don't use haiku`),
   conditionals (`if it runs long, switch to opus`) and phrases such as `use strong typing` or
   `use fast-glob` are ignored;
+- bare go-aheads (`ok`, `continue`, `devam`, `tamam`), slash commands and replies under 12
+  characters skip the Jev call and keep the current model, so a running task never drops to the
+  fast tier on a one-word reply;
 - failure, timeout, or an unrecognised Jev answer keeps the current model;
 - low confidence never downgrades and caps upgrades at the balanced tier;
 - a downgrade goes ahead only if it earns back the prompt-cache rewrite (plus the likely

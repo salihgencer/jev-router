@@ -12,7 +12,7 @@ import {
   THRESHOLDS,
 } from "./config.mjs";
 import { askJev } from "./router.mjs";
-import { decide } from "./policy.mjs";
+import { decide, trivialPrompt } from "./policy.mjs";
 import { log, dumpBody } from "./log.mjs";
 import { scrubPrompt } from "./scrub.mjs";
 import { parseQuota, freshQuota } from "./quota.mjs";
@@ -351,7 +351,9 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
               // kept for override detection, which runs locally.
               const shared = scrubPrompt(prompt);
               const contextTokens = contextTokensFor(body, state);
-              const jev = await route({ prompt: shared, current: currentModel, contextTokens, models });
+              // A go-ahead, slash command or very short reply keeps the current tier without a call.
+              const skip = trivialPrompt(prompt);
+              const jev = skip ? null : await route({ prompt: shared, current: currentModel, contextTokens, models });
               const chosen = models.find((model) => model.id === jev?.choice);
               const tierAnswer = jev && { ...jev, choice: chosen?.tier };
               const { tier, reason } = decide({
@@ -363,6 +365,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
                 cacheWarm: cacheWarmFor(state, cacheTtlFor(body)),
                 windows: windowsFrom([...catalog.values()]),
                 quota: freshQuota(quota),
+                skip,
               });
               const model =
                 shouldUseExactModel(reason, chosen?.tier, tier)
