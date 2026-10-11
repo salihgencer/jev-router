@@ -14,6 +14,8 @@ const wrapped = (label, value) => {
 const decision = (reason = "") => {
   if (reason.includes("override")) return "prompt override";
   if (reason.includes("jev-unavailable")) return "Jev unavailable; held";
+  if (reason.includes("jev-circuit-open")) return "Jev paused after failure; held";
+  if (reason.startsWith("skip-")) return "short reply; held";
   if (reason.includes("low-confidence-no-downgrade")) return "low confidence; held";
   if (reason.includes("low-confidence-capped")) return "low confidence; capped";
   if (reason.includes("cache-rebuild")) return "cache rebuild avoided";

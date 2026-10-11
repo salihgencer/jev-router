@@ -11,7 +11,7 @@ import {
   shouldUseExactModel,
   THRESHOLDS,
 } from "./config.mjs";
-import { askJev } from "./router.mjs";
+import { askJev, jevCircuit } from "./router.mjs";
 import { decide, trivialPrompt } from "./policy.mjs";
 import { log, dumpBody } from "./log.mjs";
 import { scrubPrompt } from "./scrub.mjs";
@@ -294,7 +294,7 @@ export function windowsFrom(catalog = []) {
 }
 
 
-export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = askJev } = {}) {
+export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = askJev, circuit = jevCircuit } = {}) {
   // Tier routed for each conversation's turn in flight, reused by its follow-up requests and
   // by the cache-rebuild guard, which needs to know what the prompt cache was built on.
   const convos = new ConversationStates();
@@ -352,7 +352,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
               const shared = scrubPrompt(prompt);
               const contextTokens = contextTokensFor(body, state);
               // A go-ahead, slash command or very short reply keeps the current tier without a call.
-              const skip = trivialPrompt(prompt);
+              const skip = trivialPrompt(prompt) ?? (circuit.isOpen() ? "circuit" : null);
               const jev = skip ? null : await route({ prompt: shared, current: currentModel, contextTokens, models });
               const chosen = models.find((model) => model.id === jev?.choice);
               const tierAnswer = jev && { ...jev, choice: chosen?.tier };

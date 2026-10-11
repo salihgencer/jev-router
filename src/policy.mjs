@@ -147,7 +147,8 @@ function fitWindow(tier, available, windows, contextTokens) {
  * @param {boolean} [input.cacheWarm]  whether the current tier's prompt cache is still alive
  * @param {Object<string, number>} [input.windows] context window per tier, when known
  * @param {?object} [input.quota]      fresh subscription usage snapshot (see quota.mjs)
- * @param {?string} [input.skip]      why Jev was not asked (see `trivialPrompt`), if it was not
+ * @param {?string} [input.skip]      why Jev was not asked (see `trivialPrompt`; "circuit" while
+ *                                     Jev is paused after a failure), if it was not
  * @returns {{tier: string, reason: string, changed: boolean}}
  */
 export function decide({ prompt, jev, current, available, contextTokens = 0, cacheWarm = true, windows, quota, skip }) {
@@ -166,6 +167,7 @@ export function decide({ prompt, jev, current, available, contextTokens = 0, cac
   const override = detectOverride(prompt);
   if (override) return settle(override, "override");
 
+  if (skip === "circuit") return settle(current, "jev-circuit-open");
   if (skip) return settle(current, `skip-${skip}`);
 
   if (!jev || !TIER_NAMES.includes(jev.choice)) return settle(current, "jev-unavailable");

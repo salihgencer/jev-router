@@ -2,7 +2,7 @@ import http from "node:http";
 import https from "node:https";
 import { createHash, randomUUID } from "node:crypto";
 import { availableTiers, shouldUseExactModel } from "./config.mjs";
-import { askJev } from "./router.mjs";
+import { askJev, jevCircuit } from "./router.mjs";
 import { decide, trivialPrompt } from "./policy.mjs";
 import { log, dumpBody } from "./log.mjs";
 import { scrubPrompt } from "./scrub.mjs";
@@ -185,6 +185,7 @@ export async function startCodexProxy({
   chatgptBaseURL = CHATGPT_BASE_URL,
   apiBaseURL = API_BASE_URL,
   route = askJev,
+  circuit = jevCircuit,
   statusId = "",
 } = {}) {
   const states = new Map();
@@ -217,7 +218,7 @@ export async function startCodexProxy({
             if (prompt && !explaining) {
               const shared = scrubPrompt(prompt); // only this form leaves the machine or is stored
               const contextTokens = codexContextTokens(body);
-              const skip = trivialPrompt(prompt); // go-aheads and slash commands keep the tier
+              const skip = trivialPrompt(prompt) ?? (circuit.isOpen() ? "circuit" : null); // go-aheads, slash commands and a paused Jev keep the tier
               const jev = skip ? null : await route({ prompt: shared, current: currentModel, contextTokens, models: candidates });
               const chosen = candidates.find((candidate) => candidate.id === jev?.choice);
               const decision = decide({

@@ -197,7 +197,8 @@ One Jev call per fresh user turn selects a shared abstract tier:
 - bare go-aheads (`ok`, `continue`, `devam`, `tamam`), slash commands and replies under 12
   characters skip the Jev call and keep the current model, so a running task never drops to the
   fast tier on a one-word reply;
-- failure, timeout, or an unrecognised Jev answer keeps the current model;
+- failure, timeout, or an unrecognised Jev answer keeps the current model; after a failure Jev is
+  paused for 30 seconds so an outage costs one deadline, not one per prompt;
 - low confidence never downgrades and caps upgrades at the balanced tier;
 - a downgrade goes ahead only if it earns back the prompt-cache rewrite (plus the likely
   rewrite on the way back up) within the next few requests; a cache idle past its TTL

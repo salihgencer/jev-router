@@ -34,13 +34,41 @@ function getClient() {
 }
 
 /**
+ * Stops calling Jev for a short while after a failure. Without it every prompt during an
+ * outage would wait out the full deadline before falling back; with it only the first one
+ * does, and the next calls are skipped until the cool-down has passed.
+ */
+export class CircuitBreaker {
+  constructor({ cooldownMs = THRESHOLDS.jevCircuitCooldownMs, now = Date.now } = {}) {
+    this.cooldownMs = cooldownMs;
+    this.now = now;
+    this.openUntil = 0;
+  }
+
+  isOpen() {
+    return this.now() < this.openUntil;
+  }
+
+  failure() {
+    this.openUntil = this.now() + this.cooldownMs;
+  }
+
+  success() {
+    this.openUntil = 0;
+  }
+}
+
+/** Shared by both proxies, since they talk to the same Jev endpoint. */
+export const jevCircuit = new CircuitBreaker();
+
+/**
  * Asks Jev which tier fits this prompt. Returns null on any failure, which the policy
  * layer reads as "keep the current model" — routing must never block a prompt.
  *
  * @returns {Promise<?{choice: string, confidence: number, probabilities: object, metrics: object, ms: number}>}
  */
-export async function askJev({ prompt, current, contextTokens, models }) {
-  if (!models?.length) return null;
+export async function askJev({ prompt, current, contextTokens, models, circuit = jevCircuit }) {
+  if (!models?.length || circuit.isOpen()) return null;
   const started = Date.now();
   const abort = new AbortController();
   const deadline = setTimeout(() => abort.abort(), THRESHOLDS.jevDeadlineMs);
@@ -54,6 +82,7 @@ export async function askJev({ prompt, current, contextTokens, models }) {
   };
   try {
     const result = await getClient().systemOne(request, { signal: abort.signal });
+    circuit.success();
     const { model: answer, task_complexity, reasoning_required, tool_complexity } = result.answers;
     return {
       ...answer,
@@ -69,7 +98,8 @@ export async function askJev({ prompt, current, contextTokens, models }) {
       ms: Date.now() - started,
     };
   } catch (err) {
-    log(`routing failed, keeping ${current}: ${err.message}`);
+    circuit.failure();
+    log(`routing failed, keeping ${current}; pausing Jev for ${circuit.cooldownMs / 1000}s: ${err.message}`);
     return null;
   } finally {
     clearTimeout(deadline);

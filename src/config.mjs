@@ -71,6 +71,7 @@ export const THRESHOLDS = {
    */
   jevTimeoutMs: 1500,
   jevDeadlineMs: 3000,
+  jevCircuitCooldownMs: 30_000, // after a Jev failure, skip it this long (#11)
   jevMaxRetries: 1,
 };
 
