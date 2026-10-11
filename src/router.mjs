@@ -5,21 +5,30 @@ import {
   QUESTIONS,
   questionForModels,
   THRESHOLDS,
+  jevModel,
 } from "./config.mjs";
 import { log } from "./log.mjs";
 
-// The SDK's defaults (10s per attempt, 2 retries, no total budget) are far too slow for a
-// per-prompt hot path, so the timeout, retry count and an outer deadline are all pinned.
+/**
+ * Client settings. The SDK's defaults (10s per attempt, 2 retries, no total budget) are far
+ * too slow for a per-prompt hot path, so the timeout, retry count and an outer deadline are
+ * all pinned, and so is the Jev model version the thresholds were tuned on.
+ */
+export function clientConfig(env = process.env) {
+  return {
+    apiKey: env.JEV_API_KEY ?? env.TYPESAFE_API_KEY,
+    defaultModel: jevModel(env),
+    timeout: THRESHOLDS.jevTimeoutMs,
+    retry: { maxRetries: THRESHOLDS.jevMaxRetries, backoffInitialMs: 150, backoffMaxMs: 400 },
+    logLevel: "warn", // never "debug": request bodies contain the user's prompt
+  };
+}
+
 // Built lazily because the constructor throws when no key is present, and a missing key
 // should degrade to "no routing", not stop the session from starting.
 let client;
 function getClient() {
-  client ??= new TypeSafeClient({
-    apiKey: process.env.JEV_API_KEY ?? process.env.TYPESAFE_API_KEY,
-    timeout: THRESHOLDS.jevTimeoutMs,
-    retry: { maxRetries: THRESHOLDS.jevMaxRetries, backoffInitialMs: 150, backoffMaxMs: 400 },
-    logLevel: "warn", // never "debug": request bodies contain the user's prompt
-  });
+  client ??= new TypeSafeClient(clientConfig());
   return client;
 }
 
@@ -47,6 +56,7 @@ export async function askJev({ prompt, current, contextTokens, models }) {
     const { model: answer, task_complexity, reasoning_required, tool_complexity } = result.answers;
     return {
       ...answer,
+      jevModel: result.model ?? jevModel(),
       request,
       response: result,
       metrics: {

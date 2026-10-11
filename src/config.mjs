@@ -68,6 +68,15 @@ export const THRESHOLDS = {
 
 export const CONTEXT_WINDOW_TOKENS = 200000;
 
+/**
+ * Jev model version. Pinned on purpose: the thresholds above were tuned against one release,
+ * and the SDK's default `jev-latest` alias would move them silently. Same pin as jev-gate.
+ * Re-check the thresholds before raising it.
+ */
+export const DEFAULT_JEV_MODEL = "jev-1.13.0";
+
+export const jevModel = (env = process.env) => env.JEV_MODEL?.trim() || DEFAULT_JEV_MODEL;
+
 const COMPLEXITY_SCALE = [
   "None",
   "Very low",

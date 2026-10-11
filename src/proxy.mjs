@@ -246,6 +246,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
                 prompt,
                 model,
                 confidence: jev?.confidence ?? null,
+                jevModel: jev?.jevModel ?? null,
                 metrics: jev?.metrics ?? null,
                 reason,
                 jev: jev ? { request: jev.request, response: jev.response } : null,

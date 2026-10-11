@@ -221,6 +221,7 @@ export async function startCodexProxy({
                 tier,
                 model,
                 confidence: jev?.confidence ?? null,
+                jevModel: jev?.jevModel ?? null,
                 metrics: jev?.metrics ?? null,
                 reason: decision.reason,
                 jev: jev ? { request: jev.request, response: jev.response } : null,

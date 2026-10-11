@@ -205,6 +205,7 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | Variable | Interface | Effect |
 | --- | --- | --- |
 | `JEV_API_KEY` | Both | Enables routing. `TYPESAFE_API_KEY` also works. |
+| `JEV_MODEL` | Both | Jev model version; pinned to `jev-1.13.0` because the thresholds were tuned on it. |
 | `JEV_ALLOW_FABLE` | Both | Enables the opt-in long tier. |
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
