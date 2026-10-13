@@ -17,6 +17,7 @@ import { log, dumpBody } from "./log.mjs";
 import { scrubPrompt } from "./scrub.mjs";
 import { parseQuota, freshQuota } from "./quota.mjs";
 import { writeDecision, writeStatus } from "./status.mjs";
+import { isShadowMode, recordDecision, calculateCostComparisons } from "./ledger.mjs";
 
 const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 const debug = (line) => process.env.JEV_DEBUG && log(line);
@@ -259,6 +260,18 @@ export function promptTokensFrom(text) {
   return null;
 }
 
+export function usageFrom(text) {
+  const usageOf = (obj) => obj?.message?.usage ?? obj?.usage;
+  const start = /event:\s*message_start\s*\ndata:\s*(\{.*\})/.exec(text);
+  try {
+    if (start) return usageOf(JSON.parse(start[1]));
+    if (/^\s*\{/.test(text)) return usageOf(JSON.parse(text));
+  } catch {
+    // Incomplete or malformed
+  }
+  return null;
+}
+
 /**
  * Context size used by the policy: the larger of the local estimate and what the API
  * measured for this conversation's previous request, so a downgrade is never priced on an
@@ -392,10 +405,32 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
             }
             // The sentinel is not a real model, so every routed request must be rewritten,
             // including follow-ups that reuse the tier chosen for the turn.
-            const tier = state.tier ?? current;
-            const model = state.model ?? idOf(tier);
-            debug(`${key} rewrite ${body.model} -> ${model}`);
-            applyTier(body, tier, model);
+            const shadow = isShadowMode();
+            const requestedModel = body.model;
+            const targetTier = state.tier ?? current;
+            const targetModel = state.model ?? idOf(targetTier);
+
+            const executedModel = shadow
+              ? (isAuto(body.model) ? "claude-sonnet-5" : body.model)
+              : targetModel;
+            const executedTier = tierOf(executedModel) ?? (shadow ? "sonnet" : targetTier);
+
+            debug(`${key} ${shadow ? "[shadow] keep" : "rewrite"} ${body.model} -> ${executedModel} (target: ${targetModel})`);
+            applyTier(body, executedTier, executedModel);
+
+            if (fresh) {
+              state.fresh = {
+                ...fresh,
+                requestedModel,
+                targetTier,
+                targetModel,
+                executedTier,
+                executedModel,
+                mode: shadow ? "shadow" : "enforce",
+                sessionKey: sessionOf(body) || key,
+              };
+            }
+
             // Publish what went out. Claude Code's UI shows the row you picked, not the tier
             // it resolved to, so the status line is the only place this is visible.
             // `claude -p` omits metadata on the first request of a session, so there is no
@@ -403,7 +438,8 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
             // key is stable for the same conversation and is already what `debug` prints, so
             // it is the identifier a user can pass to `jev-explain` for a print-mode run.
             if (fresh && !explaining) {
-              writeDecision(sessionOf(body) || key, { tier, ...fresh, at: Date.now() });
+              const displayReason = shadow ? `${fresh.reason} [shadow]` : fresh.reason;
+              writeDecision(sessionOf(body) || key, { tier: targetTier, ...fresh, reason: displayReason, at: Date.now() });
             }
           }
           out = Buffer.from(JSON.stringify(body));
@@ -466,6 +502,26 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
               const tokens = promptTokensFrom(head);
               if (tokens != null) state.promptTokens = tokens;
               state.lastResponseAt = Date.now();
+
+              if (state.fresh) {
+                const usage = usageFrom(head) ?? (tokens != null ? { input_tokens: tokens } : {});
+                const costs = calculateCostComparisons(usage);
+                recordDecision({
+                  mode: state.fresh.mode,
+                  sessionKey: state.fresh.sessionKey,
+                  jevModel: state.fresh.jevModel,
+                  requestedModel: state.fresh.requestedModel,
+                  targetTier: state.fresh.targetTier,
+                  targetModel: state.fresh.targetModel,
+                  executedTier: state.fresh.executedTier,
+                  executedModel: state.fresh.executedModel,
+                  reason: state.fresh.reason,
+                  confidence: state.fresh.confidence,
+                  contextTokens: state.promptTokens ?? 0,
+                  usage,
+                  costs,
+                });
+              }
             };
             up.on("data", (c) => {
               if (done) return;

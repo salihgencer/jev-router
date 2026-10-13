@@ -285,6 +285,20 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | `JEV_CODEX_BALANCED_MODEL` | Codex | Balanced model; defaults to `gpt-5.6-terra`. |
 | `JEV_CODEX_STRONG_MODEL` | Codex | Strong model; defaults to `gpt-5.6-sol`. |
 | `JEV_CODEX_LONG_MODEL` | Codex | Long model; defaults to `gpt-6-astra`. |
+| `JEV_MODE` | Both | `enforce` (default) or `shadow` (record decisions without rewriting models). |
+| `JEV_LEDGER_FILE` | Both | Decision ledger path; defaults to `~/.jev-router/ledger.jsonl`. |
+
+### Shadow mode and decision ledger
+
+To evaluate potential savings and model choices without altering session models, set `JEV_MODE=shadow`:
+
+- In `shadow` mode, Jev evaluates each prompt and records decisions to the ledger, but the proxy forwards the baseline model.
+- Every decision is logged to `~/.jev-router/ledger.jsonl` (mode `0600`) capturing token usage, chosen tier, executed model, and relative cost comparisons.
+- Run `jev-stats` to view cumulative metrics, tier distributions, and cost savings vs running everything on Opus or Sonnet:
+
+```sh
+jev-stats
+```
 
 Existing environment variables have highest precedence, followed by `.env` in the launch
 directory, `~/.jev-router.env`, and the legacy `~/.jev-claude.env`.

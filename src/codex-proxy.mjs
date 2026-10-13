@@ -8,6 +8,7 @@ import { log, dumpBody } from "./log.mjs";
 import { scrubPrompt } from "./scrub.mjs";
 import { parseQuota, freshQuota } from "./quota.mjs";
 import { writeDecision, writeStatus } from "./status.mjs";
+import { isShadowMode, recordDecision, calculateCostComparisons } from "./ledger.mjs";
 
 const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const API_BASE_URL = "https://api.openai.com/v1";
@@ -231,28 +232,57 @@ export async function startCodexProxy({
                 quota: freshQuota(quota),
                 skip,
               });
-              tier = decision.tier;
-              model =
-                shouldUseExactModel(decision.reason, chosen?.tier, tier)
+              const shadow = isShadowMode();
+              const targetTier = decision.tier;
+              const targetModel =
+                shouldUseExactModel(decision.reason, chosen?.tier, targetTier)
                   ? chosen.id
-                  : tier === current
+                  : targetTier === current
                     ? currentModel
-                    : modelForTier(candidates, tier);
-              states.set(key, { tier, model });
+                    : modelForTier(candidates, targetTier);
+
+              const executedModel = shadow
+                ? (body.model === CODEX_AUTO_MODEL ? currentModel : body.model)
+                : targetModel;
+              const executedTier = codexTierOf(executedModel) ?? (shadow ? "sonnet" : targetTier);
+
+              tier = targetTier;
+              model = executedModel;
+              states.set(key, { tier: targetTier, model: targetModel });
               routing = {
                 prompt: shared,
-                tier,
-                model,
+                tier: targetTier,
+                model: targetModel,
+                executedTier,
+                executedModel,
+                mode: shadow ? "shadow" : "enforce",
                 confidence: jev?.confidence ?? null,
                 jevModel: jev?.jevModel ?? null,
                 quota: freshQuota(quota),
                 metrics: jev?.metrics ?? null,
-                reason: decision.reason,
+                reason: shadow ? `${decision.reason} [shadow]` : decision.reason,
                 jev: jev ? { request: jev.request, response: jev.response } : null,
                 at: Date.now(),
               };
               writeDecision(statusId, routing);
-              debug(`${key} ${current} -> ${tier} (${decision.reason}) | ${shared.slice(0, 60)}`);
+              debug(
+                `${key} ${shadow ? "[shadow] keep" : "rewrite"} ${current} -> ${executedModel} (target: ${targetTier}) | ${shared.slice(0, 60)}`,
+              );
+              recordDecision({
+                mode: shadow ? "shadow" : "enforce",
+                sessionKey: statusId || key,
+                jevModel: jev?.jevModel,
+                requestedModel: body.model,
+                targetTier,
+                targetModel,
+                executedTier,
+                executedModel,
+                reason: decision.reason,
+                confidence: jev?.confidence,
+                contextTokens,
+                usage: { input_tokens: contextTokens },
+                costs: calculateCostComparisons({ input_tokens: contextTokens }),
+              });
             }
             applyCodexTier(body, tier, models, model);
           } else {
