@@ -190,6 +190,21 @@ jev-agy -i "architect a distributed cache"
 - Trivial prompts and go-aheads skip Jev and default to the fast tier (`gemini-3.8-flash-low`).
 - On any Jev timeout or failure, `jev-agy` fails open, launching `agy` with its default configuration.
 
+### Sub-agent routing (`jev-agy-subagent-hook`)
+
+Antigravity executes sub-agents via the `invoke_subagent` tool. `jev-agy-subagent-hook` intercepts
+sub-agent invocations via a `PreToolUse` lifecycle hook and asks Jev to pick `flash_lite`, `flash`, or `pro`
+based on the subagent's task description:
+
+```sh
+jev-agy-subagent-hook install     # adds the hook to ~/.gemini/antigravity-cli/hooks.json (backed up first)
+jev-agy-subagent-hook uninstall
+```
+
+- When the subagent's `Model` was already explicitly selected (not `inherit`), it is left untouched.
+- Existing hooks (such as `studio-hook`) and other lifecycle handlers in `hooks.json` are fully preserved.
+- Any Jev failure fails open with `allow`, continuing execution without interruption.
+
 ## How it works
 
 Each command starts a loopback proxy, launches the real CLI, and forwards the CLI's existing

@@ -14,7 +14,8 @@
     "jev-codex": "bin/jev-codex.mjs",
     "jev-explain": "bin/jev-explain.mjs",
     "jev-subagent-hook": "bin/jev-subagent-hook.mjs",
-    "jev-agy": "bin/jev-agy.mjs"
+    "jev-agy": "bin/jev-agy.mjs",
+    "jev-agy-subagent-hook": "bin/jev-agy-subagent-hook.mjs"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",
