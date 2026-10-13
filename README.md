@@ -205,6 +205,13 @@ jev-agy-subagent-hook uninstall
 - Existing hooks (such as `studio-hook`) and other lifecycle handlers in `hooks.json` are fully preserved.
 - Any Jev failure fails open with `allow`, continuing execution without interruption.
 
+### Advisory notifications in ongoing sessions
+
+Because Antigravity cannot switch the main session's model mid-flight behind a proxy, `src/agy-advisory.mjs`
+provides a `PreInvocation` hook that inspects the latest user request and notifies the user with an
+informational ephemeral message when an active high-tier model is being used for a simple task:
+`[Jev] Bilgi: Bu istek için daha ekonomik bir model (gemini-3.8-flash) yeterli olabilir (/model ile değiştirebilirsiniz).`
+
 ## How it works
 
 Each command starts a loopback proxy, launches the real CLI, and forwards the CLI's existing
