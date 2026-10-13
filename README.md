@@ -173,6 +173,23 @@ Codex's footer shows `jev-router` because it displays the selected picker entry,
 not the model chosen behind that provider. If Jev is unavailable, the commentary names the
 fallback model and explains how to set `JEV_API_KEY`.
 
+## Google Antigravity (agy) interface
+
+`jev-agy` launches Google Antigravity with smart model routing for initial prompts (`-p` or `-i`).
+It inspects available models from `agy models` (cached locally), consults Jev for the prompt's
+complexity and reasoning requirements, and selects the most cost-effective `--model` (`gemini-3.8-flash-low`,
+`claude-sonnet-5-5-medium`, or `claude-opus-5-5-high`).
+
+```sh
+jev-agy -p "refactor database connection pool"
+jev-agy -i "architect a distributed cache"
+```
+
+- When the user explicitly passes `--model` (or `-m`), routing stands down and passes through.
+- Manual overrides such as `use opus` or `opus kullan` in the prompt select the strong tier directly.
+- Trivial prompts and go-aheads skip Jev and default to the fast tier (`gemini-3.8-flash-low`).
+- On any Jev timeout or failure, `jev-agy` fails open, launching `agy` with its default configuration.
+
 ## How it works
 
 Each command starts a loopback proxy, launches the real CLI, and forwards the CLI's existing
